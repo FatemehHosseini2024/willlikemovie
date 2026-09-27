@@ -6,3 +6,4 @@ sqlalchemy==2.0.50
 PyMySQL==1.2.0
 matplotlib==3.10.7
 seaborn==0.13.2
+requests==2.32.5
