@@ -4,7 +4,7 @@ __pycache__/
 venv/
 .streamlit/secrets.toml
 secrets.toml
-movieforme_cluster*.csv
 tools/
 tunnel.log
+.kilo/
 .DS_Store
