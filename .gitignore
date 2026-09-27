@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.streamlit/secrets.toml
+secrets.toml
+movieforme_cluster*.csv
+tools/
+tunnel.log
+.DS_Store
