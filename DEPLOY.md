@@ -22,6 +22,7 @@ means no database account and no card is needed. See *Persistence* below before 
 app.py                    the Streamlit frontend (entry point)
 willLikeMovie.py          the pipeline it runs
 requirements.txt          pinned dependencies
+runtime.txt               the Python version the host builds with
 .streamlit/config.toml    server + theme settings
 data/movieforme.db        the SQLite database, 117 movies
 seed/movieforme.csv       the same rows as CSV
@@ -30,6 +31,20 @@ export_data.py            local helper, re-exports seed/movieforme.csv from the 
 ```
 
 `omdbapi.py`, `movieforme_cluster*.csv` and `__pycache__` are not needed on the server.
+
+## Python version
+
+The project targets **Python 3.12**, the version it was developed and tested on, and
+`runtime.txt` asks the host for it:
+
+```
+python-3.12
+```
+
+The version is deliberately not in `requirements.txt`: pip has no directive for the interpreter
+version, it only installs packages. `runtime.txt` is what Streamlit Community Cloud reads when it
+builds the app, and a local `py -3.12 -m venv` matches it. If you ever move to a package-based
+workflow, `pyproject.toml` with `requires-python = ">=3.12"` is the packaging-standard equivalent.
 
 ## 1. Rebuild the SQLite database from scratch (optional)
 
