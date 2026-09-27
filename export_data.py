@@ -1,11 +1,24 @@
-"""Export the movieforme table to seed/movieforme.csv for a fresh deployment."""
+"""Export the movieforme table to seed/movieforme.csv for a fresh deployment.
+
+The source database comes from the WILLLIKEMOVIE_DB_URL environment variable, so no
+credentials live in the repository:
+
+    set WILLLIKEMOVIE_DB_URL=mysql+pymysql://user:password@host:3306/willlikemovie
+    python export_data.py
+"""
 import csv
+import os
+import sys
 from pathlib import Path
 
 from sqlalchemy import MetaData, Table, create_engine
 
 APP_DIR = Path(__file__).resolve().parent
-engine = create_engine("mysql+pymysql://root:1234567@localhost/willlikemovie")
+url = os.environ.get("WILLLIKEMOVIE_DB_URL")
+if not url:
+    sys.exit("WILLLIKEMOVIE_DB_URL is not set. See the docstring for an example.")
+
+engine = create_engine(url)
 metadata = MetaData()
 table = Table("movieforme", metadata, autoload_with=engine)
 

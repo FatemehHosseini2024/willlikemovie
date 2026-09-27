@@ -2,8 +2,16 @@
 
 `app.py` runs `willLikeMovie.py` on every new session, and that script trains its models from the
 `movieforme` table. The connection string comes from the environment variable
-`WILLLIKEMOVIE_DB_URL`; when it is not set the pipeline falls back to your local
-`mysql+pymysql://root:1234567@localhost/willlikemovie`, so local development is unaffected.
+`WILLLIKEMOVIE_DB_URL`; when it is unset the pipeline uses the committed SQLite file
+`data/movieforme.db`, so no credentials are needed and nothing sensitive is stored in the
+repository.
+
+To run against your own MySQL instead, set the variable before starting the app:
+
+```powershell
+$env:WILLLIKEMOVIE_DB_URL = "mysql+pymysql://USER:PASSWORD@HOST:3306/willlikemovie"
+streamlit run app.py
+```
 
 The hosted version uses the committed SQLite file `data/movieforme.db` (the same 117 rows), which
 means no database account and no card is needed. See *Persistence* below before you rely on it.
@@ -51,7 +59,9 @@ git push -u origin main
 
 ## 3. Deploy the app
 
-1. Go to https://share.streamlit.io and connect the repository.
+1. Go to https://share.streamlit.io and connect the repository. A public repository needs no
+   GitHub App authorization, so this is one click; a private one asks you to authorize the
+   Streamlit app for that repository first.
 2. In **Deploy > Settings > Secrets** add:
 
    ```
@@ -60,9 +70,9 @@ git push -u origin main
    ```
 
    `APP_PASSWORD` is what keeps the database from being edited by anyone who finds the URL: when
-   it is set, the app asks for the password before showing anything. Leave
-   `WILLLIKEMOVIE_DB_URL` out and the app would fall back to MySQL on localhost, which does not
-   exist on the server, so set it explicitly.
+   it is set, the app asks for the password before showing anything. `WILLLIKEMOVIE_DB_URL` is
+   optional here, since the deployed default is already the SQLite file, but setting it makes the
+   intent explicit.
 
 3. Deploy. The first page load trains the models, which takes roughly a minute.
 
@@ -87,6 +97,6 @@ free MySQL plan, or any VM you own will do.
 
 - The pipeline reruns on every new session, so the first request after an idle period pays the
   training cost again.
-- The password in `willLikeMovie.py` is only the local fallback. It is committed to the
-  repository, so rotate that local database password if the machine is reachable from anywhere.
+- No database credentials are committed anywhere in this repository. `WILLLIKEMOVIE_DB_URL` is
+  read from the environment, and `APP_PASSWORD` lives in the deployment secrets.
 - `movieforme_cluster.csv` is written on every run into the app's temporary filesystem.

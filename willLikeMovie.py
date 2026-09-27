@@ -20,10 +20,10 @@ from sqlalchemy import create_engine
 
 
 pd.set_option('display.max_rows',None)
-DB_URL = os.environ.get(
-    "WILLLIKEMOVIE_DB_URL",
-    "mysql+pymysql://root:1234567@localhost/willlikemovie",
-)
+# Point this at another database with the WILLLIKEMOVIE_DB_URL environment variable,
+# for example "mysql+pymysql://user:password@host:3306/willlikemovie". No credentials
+# are stored in the repository; the default is the local SQLite file.
+DB_URL = os.environ.get("WILLLIKEMOVIE_DB_URL", "sqlite:///data/movieforme.db")
 engine = create_engine(DB_URL)
 def mlb_transformer(df):
     
