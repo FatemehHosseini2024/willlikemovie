@@ -481,6 +481,115 @@ def update_movie(engine, movie_id: int, record: dict) -> dict:
     return dict(row) if row else dict(record)
 
 
+def taste_correlations(engine) -> tuple[int, pd.DataFrame]:
+    """Rank the genres by how well they line up with the scores the user gave.
+
+    Builds one 0/1 column per genre from the pipe separated `genres` values, then takes
+    the Spearman correlation of every column with `score`. A high correlation means the
+    user tends to rate movies of that genre higher, a negative one the opposite.
+
+    Returns the number of rated movies and the full ranking, best match first.
+    """
+    empty = pd.DataFrame(columns=["rank", "feature", "correlation", "movies", "mean_score"])
+    metadata = MetaData()
+    table = Table(TABLE_NAME, metadata, autoload_with=engine)
+    with engine.connect() as connection:
+        rows = connection.execute(
+            select(table.c.genres, table.c.score).where(table.c.score.isnot(None))
+        ).mappings().all()
+
+    if not rows:
+        return 0, empty
+
+    frame = pd.DataFrame(list(rows))
+    frame["score"] = frame["score"].astype(float)
+    flags: dict[str, list[int]] = {}
+    for position, genres in enumerate(frame["genres"]):
+        for genre in clean_genre_list(str(genres or "").split("|")):
+            flags.setdefault(genre, [0] * len(frame))[position] = 1
+
+    if not flags:
+        return len(frame), empty
+
+    matrix = pd.DataFrame(flags, index=frame.index)
+    matrix["score"] = frame["score"]
+    correlations = matrix.corr(method="spearman")["score"].drop("score").dropna()
+    if correlations.empty:
+        return len(frame), empty
+
+    ranked = pd.DataFrame(
+        {
+            "feature": correlations.index,
+            "correlation": correlations.round(3).to_numpy(),
+            "movies": [int(matrix[feature].sum()) for feature in correlations.index],
+            "mean_score": [
+                round(float(matrix.loc[matrix[feature] == 1, "score"].mean()), 2)
+                for feature in correlations.index
+            ],
+        }
+    )
+    # Ties are broken by how many movies back the genre, so a 1 movie genre cannot win.
+    ranked = ranked.sort_values(["correlation", "movies"], ascending=[False, False])
+    ranked.insert(0, "rank", range(1, len(ranked) + 1))
+    return len(frame), ranked.reset_index(drop=True)
+
+
+def show_taste_analysis(ns) -> None:
+    """Show the five genres whose movies the user scores highest."""
+    st.subheader("Analyse your taste")
+    st.caption("Every genre is compared with the scores you gave, using a Spearman correlation. "
+               "The higher the number, the more that genre lines up with the high scores.")
+
+    engine = get(ns, "engine")
+    if engine is None:
+        st.warning("The pipeline did not expose its database engine.")
+        return
+
+    try:
+        rated_movies, ranked = taste_correlations(engine)
+    except Exception as exc:
+        st.error(f"Could not read your scores: `{type(exc).__name__}: {exc}`")
+        return
+
+    if ranked.empty:
+        st.info("There is not enough rated data to correlate yet. Add a few movies with "
+                "different scores and this section fills itself in.")
+        return
+
+    favourites = ranked.head(5)
+    metric_row(
+        [
+            ("rated movies", rated_movies),
+            ("genres seen", len(ranked)),
+            ("favourite genre", f"`{favourites['feature'].iloc[0]}`"),
+        ]
+    )
+
+    st.bar_chart(favourites.set_index("feature")[["correlation"]], horizontal=True, height=260)
+    st.dataframe(
+        favourites.rename(
+            columns={
+                "rank": "#",
+                "feature": "genre",
+                "correlation": "correlation",
+                "movies": "movies rated",
+                "mean_score": "mean score",
+            }
+        ),
+        width="stretch",
+    )
+
+    thin = favourites[favourites["movies"] < 3]["feature"].tolist()
+    if thin:
+        st.info(
+            "Ranked on a very small number of movies, so treat them as a hint only: "
+            + ", ".join(f"`{genre}`" for genre in thin)
+            + "."
+        )
+    st.caption("`movies rated` is how many of your scored movies carry that genre, "
+               "`mean score` is the average you gave them.")
+
+
 def show_search_and_edit(ns, features) -> None:
     """Look a movie up by name and edit the row stored in the database."""
     st.subheader("Search and edit an existing movie")
@@ -677,6 +786,8 @@ def main() -> None:
     show_add_movie(ns, run["features"])
     st.divider()
     show_search_and_edit(ns, run["features"])
+    st.divider()
+    show_taste_analysis(ns)
 
 
 if __name__ == "__main__":
