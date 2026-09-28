@@ -21,6 +21,7 @@ means no database account and no card is needed. See *Persistence* below before 
 ```
 app.py                    the Streamlit frontend (entry point)
 willLikeMovie.py          the pipeline it runs
+imdb_lookup.py            live title lookup from IMDb, fills the add-movie form
 requirements.txt          pinned dependencies
 runtime.txt               the Python version the host builds with
 .streamlit/config.toml    server + theme settings
@@ -111,6 +112,9 @@ free MySQL plan, or any VM you own will do.
 
 ## Other things to know
 
+- The **Fetch from IMDb** button in the add-movie form calls IMDb's live data endpoint over the
+  network, so the deployed app needs outbound internet. That endpoint is undocumented and may
+  change or rate-limit; if it fails the form still works and you can type the values by hand.
 - The pipeline reruns on every new session, so the first request after an idle period pays the
   training cost again.
 - No database credentials are committed anywhere in this repository. `WILLLIKEMOVIE_DB_URL` is

@@ -31,6 +31,8 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import MetaData, Table, select
 
+import imdb_lookup
+
 APP_DIR = Path(__file__).resolve().parent
 TARGET_SCRIPT = APP_DIR / "willLikeMovie.py"
 RUN_LOCK = threading.Lock()
@@ -260,6 +262,90 @@ def insert_movie(engine, record: dict) -> dict:
     return dict(row) if row else dict(record)
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def imdb_search(term: str) -> list[dict]:
+    return imdb_lookup.search_titles(term)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def imdb_details(imdb_id: str) -> dict:
+    return imdb_lookup.get_title(imdb_id)
+
+
+ADD_FIELDS = {
+    "add_title": "",
+    "add_year": None,
+    "add_imdb": None,
+    "add_country": "",
+    "add_agerating": None,
+    "add_score": None,
+    "add_like": "yes",
+    "add_genres": [],
+    "add_extra_genres": "",
+}
+
+
+def show_imdb_lookup(options) -> None:
+    """Search IMDb live and pre-fill the add-movie form with what it returns."""
+    st.markdown("**Not sure of the details? Fetch them from IMDb**")
+    term = st.text_input("movie name", key="imdb_term", placeholder="type a title")
+
+    if st.button("Search IMDb", key="imdb_search_button", disabled=not term.strip()):
+        try:
+            with st.spinner("Searching IMDb..."):
+                st.session_state["imdb_results"] = imdb_search(term.strip())
+        except Exception as exc:
+            st.session_state["imdb_results"] = []
+            st.error(f"IMDb search failed: {exc}")
+
+    results = st.session_state.get("imdb_results") or []
+    if not results:
+        return
+
+    def label(imdb_id: str) -> str:
+        item = next((row for row in results if row["imdb_id"] == imdb_id), {})
+        rating = item.get("rating")
+        votes = item.get("votes") or 0
+        rating_text = f"{rating}/10" if rating else "no rating"
+        return f"{item.get('title')} ({item.get('year')}) - {rating_text}, {votes:,} votes"
+
+    ids = [item["imdb_id"] for item in results]
+    chosen = st.selectbox("pick a movie", ids, format_func=label, key="imdb_choice")
+
+    if not st.button("Fill the form", key="imdb_fill_button"):
+        return
+
+    try:
+        with st.spinner("Fetching from IMDb..."):
+            details = imdb_details(chosen)
+    except Exception as exc:
+        st.error(f"Could not read {chosen} from IMDb: {exc}")
+        return
+
+    for key in ADD_FIELDS:
+        st.session_state[key] = ADD_FIELDS[key]
+    genres = details.get("genres") or []
+    st.session_state["add_title"] = str(details.get("title") or "")[:100]
+    st.session_state["add_year"] = details.get("year")
+    st.session_state["add_imdb"] = details.get("rating")
+    st.session_state["add_country"] = details.get("country") or ""
+    st.session_state["add_agerating"] = details.get("age_rating")
+    st.session_state["add_genres"] = [genre for genre in genres if genre in options]
+    st.session_state["add_extra_genres"] = ", ".join(genre for genre in genres if genre not in options)
+
+    summary = f"{details['title']} ({details.get('year')})"
+    if details.get("runtime_minutes"):
+        summary += f", {details['runtime_minutes']} min"
+    if details.get("certificate"):
+        summary += f", certificate {details['certificate']}"
+    if details.get("votes"):
+        summary += f", {details['votes']:,} votes"
+    st.success(f"Filled the form from IMDb: {summary}. Check the values and press "
+               "*Add to the database*.")
+    if details.get("plot"):
+        st.caption(details["plot"])
+
+
 def show_add_movie(ns, features) -> None:
     """Form to store a new movie together with the rating the user gave it."""
     st.subheader("Add a movie with your rating")
@@ -272,21 +358,30 @@ def show_add_movie(ns, features) -> None:
         return
 
     options = genre_options(features)
+    for key, default in ADD_FIELDS.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+    show_imdb_lookup(options)
+
     with st.form("add_movie"):
         left, right = st.columns(2)
         with left:
-            title = st.text_input("title")
-            year = st.number_input("year", min_value=1888, max_value=2100, value=None, step=1)
-            imdb = st.number_input("imdb", min_value=0.0, max_value=10.0, value=None, step=0.1)
+            title = st.text_input("title", key="add_title")
+            year = st.number_input("year", min_value=1888, max_value=2100, step=1, key="add_year")
+            imdb = st.number_input("imdb", min_value=0.0, max_value=10.0, step=0.1, key="add_imdb")
         with right:
-            country = st.text_input("country")
-            age_rating = st.number_input("agerating", min_value=0, max_value=100, value=None, step=1)
-            score = st.number_input("your score", min_value=0.0, max_value=10.0, value=None, step=0.1)
-            like = st.selectbox("did you like it?", ["yes", "no"])
-        known = st.multiselect("genres", options)
+            country = st.text_input("country", key="add_country")
+            age_rating = st.number_input("agerating", min_value=0, max_value=100, step=1,
+                                         key="add_agerating")
+            score = st.number_input("your score", min_value=0.0, max_value=10.0, step=0.1,
+                                    key="add_score")
+            like = st.selectbox("did you like it?", ["yes", "no"], key="add_like")
+        known = st.multiselect("genres", options, key="add_genres")
         extra = st.text_input(
             "genres not in the list",
             placeholder="type new genres, comma separated",
+            key="add_extra_genres",
         )
         submitted = st.form_submit_button("Add to the database", type="primary")
 
