@@ -22,6 +22,7 @@ means no database account and no card is needed. See *Persistence* below before 
 app.py                    the Streamlit frontend (entry point)
 willLikeMovie.py          the pipeline it runs
 imdb_lookup.py            live title lookup from IMDb, fills the add-movie form
+.streamlit/secrets.toml   local secrets such as APP_PASSWORD, gitignored, not in the repo
 requirements.txt          pinned dependencies
 runtime.txt               the Python version the host builds with
 .streamlit/config.toml    server + theme settings
@@ -86,12 +87,31 @@ git push -u origin main
    ```
 
    `APP_PASSWORD` is what keeps the database from being edited by anyone who finds the URL: when
-   it is set, the app asks for the password before showing anything. Set it to the same value as
-   `DEFAULT_PASSWORD` in `app.py` unless you want a different one. `WILLLIKEMOVIE_DB_URL` is
-   optional here, since the deployed default is already the SQLite file, but setting it makes the
-   intent explicit.
+   it is set, the app asks for the password before showing anything. There is **no default in the
+   code**, so if you leave this secret out the app stays closed and tells you what is missing.
+   `WILLLIKEMOVIE_DB_URL` is optional here, since the deployed default is already the SQLite
+   file, but setting it makes the intent explicit.
 
 3. Deploy. The first page load trains the models, which takes roughly a minute.
+
+## Running it locally
+
+The password comes from the same secret, so put it in `.streamlit/secrets.toml` next to
+`config.toml`:
+
+```
+APP_PASSWORD = "the password you chose"
+```
+
+That file is listed in `.gitignore` and is never committed. For a local run from a terminal you
+can skip the file and set the variable instead:
+
+```
+$env:APP_PASSWORD = "the password you chose"
+```
+
+The environment variable wins over the secrets file, which is handy for trying a different
+password without editing anything.
 
 ## Persistence, and how to get a real database later
 

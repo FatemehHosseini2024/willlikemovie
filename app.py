@@ -39,7 +39,7 @@ RUN_LOCK = threading.Lock()
 
 TABLE_NAME = "movieforme"
 NON_GENRE_COLUMNS = ("country", "year", "imdb", "agerating", "like", "score", "title", "cluster")
-DEFAULT_PASSWORD = "fatemeh138322"
+PASSWORD_SECRET_NAME = "APP_PASSWORD"
 PAGE_TITLE = "willLikeMovie - movie predictions"
 
 CAPTURE_POINTS = {"x": "preprocessor.fit_transform("}
@@ -716,23 +716,58 @@ def show_search_and_edit(ns, features) -> None:
     st.info("Press `Re-run pipeline` in the sidebar to retrain the models on the new values.")
 
 
+def configured_password() -> str | None:
+    """The expected password, taken from the environment or the Streamlit secrets.
+
+    Nothing is hardcoded here on purpose. A password in this file would be public in the
+    repository, so a deployment that forgets to set the secret gets `None` and the app
+    stays closed instead of falling back to something guessable.
+
+    Looked up in order: the `APP_PASSWORD` environment variable, the `STREAMLIT_APP_PASSWORD`
+    variable some hosts derive from a secret, then the Streamlit secrets file.
+    """
+    value = os.environ.get(PASSWORD_SECRET_NAME) or os.environ.get(
+        f"STREAMLIT_{PASSWORD_SECRET_NAME}"
+    )
+    if not value:
+        try:
+            value = st.secrets.get(PASSWORD_SECRET_NAME)
+        except Exception:
+            # No secrets file, or no runtime attached to read one.
+            value = None
+    return str(value).strip() or None if value else None
+
+
 def require_password() -> bool:
     """Block the whole app until the correct password is entered.
 
-    The accepted password is DEFAULT_PASSWORD, or the APP_PASSWORD secret when the host
-    sets one. Once the right password is given the session stays unlocked, so the user
-    is not asked again on every interaction.
+    The accepted password is the `APP_PASSWORD` secret, see `configured_password`. Once the
+    right password is given the session stays unlocked, so the user is not asked again on
+    every interaction.
     """
     if st.session_state.get("unlocked"):
         return True
 
-    expected = os.environ.get("APP_PASSWORD") or DEFAULT_PASSWORD
     st.markdown("### willLikeMovie")
+    expected = configured_password()
+    if expected is None:
+        st.error(
+            f"`{PASSWORD_SECRET_NAME}` is not set, so there is nothing to check the password "
+            "against and the app stays closed."
+        )
+        st.caption(
+            f"Put `{PASSWORD_SECRET_NAME} = \"...\"` in `.streamlit/secrets.toml` for a local "
+            f"run, or add `{PASSWORD_SECRET_NAME}` to the secrets of the host you deploy to. "
+            "That file is in .gitignore, so the password never reaches git."
+        )
+        return False
+
     st.caption("This app is password protected. Enter the password to continue.")
     entered = st.text_input("password", type="password", key="app_password")
     if not entered:
         return False
-    if not hmac.compare_digest(entered, expected):
+    # Compared as bytes, because compare_digest rejects non ascii strings.
+    if not hmac.compare_digest(entered.encode(), expected.encode()):
         st.error("Wrong password.")
         return False
 
