@@ -86,32 +86,48 @@ git push -u origin main
    APP_PASSWORD        = "the password you chose"
    ```
 
-   `APP_PASSWORD` is what keeps the database from being edited by anyone who finds the URL: when
-   it is set, the app asks for the password before showing anything. There is **no default in the
-   code**, so if you leave this secret out the app stays closed and tells you what is missing.
-   `WILLLIKEMOVIE_DB_URL` is optional here, since the deployed default is already the SQLite
-   file, but setting it makes the intent explicit.
+   `APP_PASSWORD` is what keeps the database from being edited by anyone who finds the URL. It is
+   **optional**: the app works without it, using the `PASSWORD_HASH` stored in `app.py`. Setting
+   the secret is still the better choice, because the hash is public in the repository and the
+   secret is not. `WILLLIKEMOVIE_DB_URL` is optional too, since the deployed default is already
+   the SQLite file, but setting it makes the intent explicit.
 
 3. Deploy. The first page load trains the models, which takes roughly a minute.
 
+## The password
+
+No plaintext password is in the repository. `app.py` stores `PASSWORD_HASH`, a salted
+PBKDF2-HMAC-SHA256 hash of the password at 600,000 iterations, and the login re-hashes what you
+type with the same salt and cost before comparing. That takes about three quarters of a second,
+which is invisible next to training the models.
+
+To change the password, hash the new one and paste the result into `PASSWORD_HASH`:
+
+```
+python -c "import app; print(app.hash_password('the new password'))"
+```
+
+**What a hash in a public repository does and does not buy you.** It removes the plaintext from
+the source, so nobody reads the password off the file, and it is unaffected by the earlier
+commits that still contain the previous password in plain text. It is *not* a secret: anyone who
+can read the repository can copy the hash and attack it offline without ever touching the app. A
+password built from a name and a few digits is a small guess space that even 600,000 iterations
+only slows down, so for a deployment that matters, set `APP_PASSWORD` in the host secrets and
+let that override the hash.
+
 ## Running it locally
 
-The password comes from the same secret, so put it in `.streamlit/secrets.toml` next to
-`config.toml`:
+Nothing to set up: the app uses `PASSWORD_HASH` from `app.py` as it is.
 
-```
-APP_PASSWORD = "the password you chose"
-```
-
-That file is listed in `.gitignore` and is never committed. For a local run from a terminal you
-can skip the file and set the variable instead:
+To try a different password without editing the code, set `APP_PASSWORD` as an environment
+variable, which wins over the hash:
 
 ```
 $env:APP_PASSWORD = "the password you chose"
 ```
 
-The environment variable wins over the secrets file, which is handy for trying a different
-password without editing anything.
+or put the same key in `.streamlit/secrets.toml`, which is listed in `.gitignore`. The order is
+environment variable first, then that file, then the hash.
 
 ## Persistence, and how to get a real database later
 
@@ -137,6 +153,6 @@ free MySQL plan, or any VM you own will do.
   change or rate-limit; if it fails the form still works and you can type the values by hand.
 - The pipeline reruns on every new session, so the first request after an idle period pays the
   training cost again.
-- No database credentials are committed anywhere in this repository. `WILLLIKEMOVIE_DB_URL` is
+- No database credentials or plaintext passwords are committed anywhere in this repository. `WILLLIKEMOVIE_DB_URL` is
   read from the environment, and `APP_PASSWORD` lives in the deployment secrets.
 - `movieforme_cluster.csv` is written on every run into the app's temporary filesystem.

@@ -15,11 +15,13 @@ Nothing is pre-filled from the `data` variable; every value comes from the form.
 """
 
 import contextlib
+import hashlib
 import hmac
 import importlib.util
 import io
 import linecache
 import os
+import secrets
 import sys
 import threading
 from datetime import datetime
@@ -40,6 +42,16 @@ RUN_LOCK = threading.Lock()
 TABLE_NAME = "movieforme"
 NON_GENRE_COLUMNS = ("country", "year", "imdb", "agerating", "like", "score", "title", "cluster")
 PASSWORD_SECRET_NAME = "APP_PASSWORD"
+PASSWORD_ITERATIONS = 600_000
+# The app password, stored as a salted PBKDF2-HMAC-SHA256 hash. No plaintext password is
+# in this file. Produce a new line for this constant with `hash_password("new password")`,
+# which takes about a second. Note that this hash is public in the repository, so it stops
+# a casual reader from getting in but not someone who wants to attack it: see the password
+# section of DEPLOY.md before relying on it for anything real.
+PASSWORD_HASH = (
+    "pbkdf2_sha256$600000$bda2701eef3529e86469dbb9a54c2c3a"
+    "$f7f796158464ef40e52d608787d59316d44dfbce4ccae616a10f3b0bd45e49b9"
+)
 PAGE_TITLE = "willLikeMovie - movie predictions"
 
 CAPTURE_POINTS = {"x": "preprocessor.fit_transform("}
@@ -738,36 +750,61 @@ def configured_password() -> str | None:
     return str(value).strip() or None if value else None
 
 
+def hash_password(password: str, salt: bytes | None = None,
+                  iterations: int = PASSWORD_ITERATIONS) -> str:
+    """Hash `password` into the `pbkdf2_sha256$iterations$salt$digest` form PASSWORD_HASH uses.
+
+    Run this to rotate the password: put the printed value in PASSWORD_HASH. A random salt is
+    generated unless one is given, so two users with the same password get different hashes.
+    """
+    salt = salt if salt is not None else secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+    return f"pbkdf2_sha256${iterations}${salt.hex()}${digest.hex()}"
+
+
+def password_matches(entered: str, stored: str) -> bool:
+    """True when hashing `entered` with the salt and cost in `stored` reproduces it."""
+    try:
+        algorithm, iterations, salt_hex, digest_hex = stored.split("$")
+        if algorithm != "pbkdf2_sha256":
+            return False
+        expected = bytes.fromhex(digest_hex)
+        candidate = hashlib.pbkdf2_hmac(
+            "sha256", entered.encode(), bytes.fromhex(salt_hex), int(iterations)
+        )
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(candidate, expected)
+
+
+def check_password(entered: str) -> bool:
+    """True when `entered` is the app password.
+
+    A secret from the environment or the Streamlit secrets wins over PASSWORD_HASH, so the
+    password can be changed on a running deployment without editing any code. With no secret
+    set, the hash in this file is what has to be reproduced.
+    """
+    override = configured_password()
+    if override is not None:
+        return hmac.compare_digest(entered.encode(), override.encode())
+    return password_matches(entered, PASSWORD_HASH)
+
+
 def require_password() -> bool:
     """Block the whole app until the correct password is entered.
 
-    The accepted password is the `APP_PASSWORD` secret, see `configured_password`. Once the
-    right password is given the session stays unlocked, so the user is not asked again on
-    every interaction.
+    The accepted password is checked by `check_password`. Once the right password is given the
+    session stays unlocked, so the user is not asked again on every interaction.
     """
     if st.session_state.get("unlocked"):
         return True
 
     st.markdown("### willLikeMovie")
-    expected = configured_password()
-    if expected is None:
-        st.error(
-            f"`{PASSWORD_SECRET_NAME}` is not set, so there is nothing to check the password "
-            "against and the app stays closed."
-        )
-        st.caption(
-            f"Put `{PASSWORD_SECRET_NAME} = \"...\"` in `.streamlit/secrets.toml` for a local "
-            f"run, or add `{PASSWORD_SECRET_NAME}` to the secrets of the host you deploy to. "
-            "That file is in .gitignore, so the password never reaches git."
-        )
-        return False
-
     st.caption("This app is password protected. Enter the password to continue.")
     entered = st.text_input("password", type="password", key="app_password")
     if not entered:
         return False
-    # Compared as bytes, because compare_digest rejects non ascii strings.
-    if not hmac.compare_digest(entered.encode(), expected.encode()):
+    if not check_password(entered):
         st.error("Wrong password.")
         return False
 
