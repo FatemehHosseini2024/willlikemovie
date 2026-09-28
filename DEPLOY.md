@@ -85,7 +85,8 @@ git push -u origin main
    ```
 
    `APP_PASSWORD` is what keeps the database from being edited by anyone who finds the URL: when
-   it is set, the app asks for the password before showing anything. `WILLLIKEMOVIE_DB_URL` is
+   it is set, the app asks for the password before showing anything. Set it to the same value as
+   `DEFAULT_PASSWORD` in `app.py` unless you want a different one. `WILLLIKEMOVIE_DB_URL` is
    optional here, since the deployed default is already the SQLite file, but setting it makes the
    intent explicit.
 

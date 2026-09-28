@@ -37,6 +37,7 @@ RUN_LOCK = threading.Lock()
 
 TABLE_NAME = "movieforme"
 NON_GENRE_COLUMNS = ("country", "year", "imdb", "agerating", "like", "score", "title", "cluster")
+DEFAULT_PASSWORD = "fatemeh138322"
 PAGE_TITLE = "willLikeMovie - movie predictions"
 
 CAPTURE_POINTS = {"x": "preprocessor.fit_transform("}
@@ -512,21 +513,26 @@ def show_search_and_edit(ns, features) -> None:
 
 
 def require_password() -> bool:
-    """Gate the app behind APP_PASSWORD when that secret is set on the host."""
-    expected = os.environ.get("APP_PASSWORD") or ""
-    if not expected:
+    """Block the whole app until the correct password is entered.
+
+    The accepted password is DEFAULT_PASSWORD, or the APP_PASSWORD secret when the host
+    sets one. Once the right password is given the session stays unlocked, so the user
+    is not asked again on every interaction.
+    """
+    if st.session_state.get("unlocked"):
         return True
 
+    expected = os.environ.get("APP_PASSWORD") or DEFAULT_PASSWORD
     st.markdown("### willLikeMovie")
+    st.caption("This app is password protected. Enter the password to continue.")
     entered = st.text_input("password", type="password", key="app_password")
     if not entered:
-        st.caption("This app is password protected.")
         return False
     if not hmac.compare_digest(entered, expected):
         st.error("Wrong password.")
         return False
 
-    st.session_state.pop("app_password", None)
+    st.session_state["unlocked"] = True
     return True
 
 
